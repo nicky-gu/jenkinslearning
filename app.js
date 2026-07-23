@@ -24,7 +24,7 @@
     words: [],
     mistakes: [],
     stats: { stars: 0, streak: 0, lastActive: "", achievements: [] },
-    settings: { accent: "us" },
+    settings: { accent: "us", autoSpeakLearn: true },
   });
 
   let state = defaultState();
@@ -1010,6 +1010,14 @@
 
     const pct = ((learnIdx + 1) / learnList.length) * 100;
     $("#learn-progress").style.width = pct + "%";
+
+    // 默认直接发音：每显示一张卡片就自动念出英文（设置可关）
+    if (state.settings.autoSpeakLearn) {
+      // 稍延迟，等卡片渲染完成、避免与翻面动画/上次发音抢资源
+      setTimeout(() => {
+        if (learnList[learnIdx] === w) speak(w.en);
+      }, 120);
+    }
   }
   function bindLearn() {
     $("#learn-prev").addEventListener("click", () => {
@@ -1032,6 +1040,15 @@
     $("#learn-slow").addEventListener("click", () => {
       if (learnList[learnIdx]) speak(learnList[learnIdx].en, 0.5);
     });
+    const autoSpk = $("#learn-autospeak");
+    if (autoSpk) {
+      autoSpk.checked = !!state.settings.autoSpeakLearn;
+      autoSpk.addEventListener("change", () => {
+        state.settings.autoSpeakLearn = autoSpk.checked;
+        save();
+        if (autoSpk.checked && learnList[learnIdx]) speak(learnList[learnIdx].en);
+      });
+    }
   }
 
   /* ---------------- 拼写模式 ---------------- */

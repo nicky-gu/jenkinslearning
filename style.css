@@ -362,6 +362,20 @@ input[type="text"]:focus, select:focus {
 .mode-banner h2 { color: #fff; }
 .mode-banner p { opacity: .95; font-size: .9rem; }
 .learn-bg { background: linear-gradient(120deg, #4dabf7, #3b5bdb); }
+.auto-speak-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.auto-speak-row input { width: 16px; height: 16px; accent-color: #ffd43b; cursor: pointer; }
 .spell-bg { background: linear-gradient(120deg, #ff922b, #f76707); }
 .review-bg { background: linear-gradient(120deg, #9775fa, #7048e8); }
 .exam-bg { background: linear-gradient(120deg, #20c997, #0ca678); }
