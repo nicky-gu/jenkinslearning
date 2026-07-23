@@ -159,22 +159,68 @@
   /* ---------------- 错题本：记录与同步 ---------------- */
   function recordMistake({ wordId, mode, prompt, answer, correct }) {
     const w = wordId ? state.words.find((x) => x.id === wordId) : null;
-    state.mistakes.push({
-      id: uid(),
-      wordId: wordId || "",
-      en: w ? w.en : "",
-      zh: w ? w.zh : "",
-      mode,
-      prompt: prompt || "",
-      answer: answer || "",
-      correct: correct || "",
-      at: Date.now(),
-      resolved: false,
-    });
+    const now = Date.now();
+    // 去重：同一 wordId + mode 在最近 30 秒内只更新，不新增
+    const dup = state.mistakes.find(
+      (m) => m.wordId === wordId && m.mode === mode && !m.resolved && now - m.at < 30000
+    );
+    if (dup) {
+      dup.answer = answer || "";
+      dup.prompt = prompt || "";
+      dup.correct = correct || "";
+      dup.at = now;
+    } else {
+      state.mistakes.push({
+        id: uid(),
+        wordId: wordId || "",
+        en: w ? w.en : "",
+        zh: w ? w.zh : "",
+        mode,
+        prompt: prompt || "",
+        answer: answer || "",
+        correct: correct || "",
+        at: now,
+        resolved: false,
+      });
+    }
     save();
     renderStats();
-    const badge = $("#mistake-count");
-    if (badge) badge.textContent = state.mistakes.filter((m) => !m.resolved).length;
+    // 如果当前正在看错题本，实时刷新
+    if (currentView === "mistakes") renderMistakes();
+    else {
+      const badge = $("#mistake-count");
+      if (badge) badge.textContent = state.mistakes.filter((m) => !m.resolved).length;
+    }
+    // 用户反馈
+    toast("已加入错题本 📕", "");
+  }
+
+  // 旧版本只有 word.wrong 计数，没有 state.mistakes；启动时自动迁移一次
+  function migrateLegacyMistakes() {
+    if (!Array.isArray(state.mistakes)) state.mistakes = [];
+    let added = 0;
+    state.words.forEach((w) => {
+      if (!w.wrong) return;
+      // 该词已经有任何错题记录，就不再迁移（避免重复）
+      if (state.mistakes.some((m) => m.wordId === w.id)) return;
+      state.mistakes.push({
+        id: uid(),
+        wordId: w.id,
+        en: w.en,
+        zh: w.zh,
+        mode: "legacy",
+        prompt: `中文：${w.zh}`,
+        answer: "（历史错题）",
+        correct: w.en,
+        at: w.last || w.added || Date.now(),
+        resolved: false,
+      });
+      added++;
+    });
+    if (added) {
+      save();
+      toast(`已迁移 ${added} 条历史错题 📕`, "ok");
+    }
   }
 
   // 单词被练到「已掌握」时，自动将其错题标记为已攻克（保留历史）
@@ -533,11 +579,13 @@
     // 清空
     $("#btn-clear").addEventListener("click", () => {
       if (!state.words.length) return toast("单词本已经是空的啦", "");
-      if (confirm("确定要清空整个单词本吗？此操作不可恢复！")) {
+      if (confirm("确定要清空整个单词本吗？相关错题也会一起清空，此操作不可恢复！")) {
         state.words = [];
+        state.mistakes = [];
         save();
         renderAll();
-        toast("已清空单词本");
+        if (currentView === "mistakes") renderMistakes();
+        toast("已清空单词本和错题");
       }
     });
   }
@@ -1183,7 +1231,7 @@
   }
 
   /* ---------------- 错题本：渲染与交互 ---------------- */
-  const MODE_LABEL = { spell: "拼写", exam: "考试", review: "复习", game: "配对" };
+  const MODE_LABEL = { spell: "拼写", exam: "考试", review: "复习", game: "配对", legacy: "历史" };
   let showResolved = false;
 
   function relTime(ts) {
@@ -1272,6 +1320,11 @@
         actions.appendChild(
           mkBtn("btn btn-round", "✅ 标记攻克", () => {
             m.resolved = true;
+            const w = m.wordId && state.words.find((x) => x.id === m.wordId);
+            if (w) {
+              w.wrong = 0;
+              w.reps = Math.max(w.reps || 0, 3); // 标记攻克视为连续掌握
+            }
             save();
             renderMistakes();
             renderStats();
@@ -1358,6 +1411,7 @@
   /* ---------------- 启动 ---------------- */
   function init() {
     load();
+    migrateLegacyMistakes();
     checkin();
     bindTabs();
     bindBook();
