@@ -29,6 +29,238 @@
 
   let state = defaultState();
 
+  // 当前视图（用于同步后精准刷新）
+  let currentView = "book";
+
+  // ============ 云端同步（Cloudflare KV）============
+  // 思路：用「同步口令」派生 KV key，整块 state 存云端；updated_at 做后写覆盖/冲突保护。
+  const SYNC_KEY = "wordland.sync"; // 同步口令
+  const SYNC_ON = "wordland.syncOn"; // 是否开启自动同步
+  const SYNC_AT = "wordland.syncAt"; // 最近一次成功同步的 updated_at
+  let pushTimer = null;
+  let syncing = false;
+  let applyingRemote = false; // 应用云端数据时，避免 save() 再次触发推送
+  let dirty = false; // 本地有改动尚未成功上传
+
+  function getSyncPass() {
+    try { return localStorage.getItem(SYNC_KEY) || ""; } catch { return ""; }
+  }
+  function getSyncOn() {
+    try { return localStorage.getItem(SYNC_ON) === "1"; } catch { return false; }
+  }
+  function getSyncAt() {
+    try { return Number(localStorage.getItem(SYNC_AT)) || 0; } catch { return 0; }
+  }
+  function setSyncAt(v) {
+    try { localStorage.setItem(SYNC_AT, String(v)); } catch { /* ignore */ }
+  }
+  function hasLocalData() {
+    return state.words.length > 0 || state.mistakes.length > 0;
+  }
+
+  function syncHeaders(pass) {
+    return { "Content-Type": "application/json", Authorization: "Bearer " + pass };
+  }
+
+  // 拉取：返回 { status, data, updated_at }
+  async function apiGet(pass) {
+    const r = await fetch("/api/sync", { headers: { Authorization: "Bearer " + pass } });
+    if (r.status === 404) return { status: 404 };
+    if (!r.ok) return { status: r.status };
+    const j = await r.json();
+    return { status: 200, data: j.data, updated_at: j.updated_at };
+  }
+  // 推送：返回 { status, updated_at, data }
+  async function apiPut(pass, data, updated_at) {
+    const r = await fetch("/api/sync", {
+      method: "POST",
+      headers: syncHeaders(pass),
+      body: JSON.stringify({ data, updated_at }),
+    });
+    if (r.status === 409) {
+      const j = await r.json().catch(() => ({}));
+      return { status: 409, data: j.data, updated_at: j.updated_at };
+    }
+    if (!r.ok) return { status: r.status };
+    const j = await r.json().catch(() => ({}));
+    return { status: 200, updated_at: j.updated_at || updated_at };
+  }
+
+  function updateSyncUI(kind) {
+    const el = document.getElementById("sync-status");
+    if (!el) return;
+    if (kind === "ok") {
+      el.textContent = "已同步 · " + new Date().toLocaleTimeString();
+      el.className = "sync-status ok";
+    } else if (kind === "err") {
+      el.textContent = "同步失败（检查网络或部署）";
+      el.className = "sync-status err";
+    } else {
+      const at = getSyncAt();
+      el.textContent = at ? "上次同步：" + new Date(at).toLocaleString() : "未同步";
+      el.className = "sync-status";
+    }
+  }
+
+  // 把云端 data 写回本地（复用 load 的归一化逻辑）
+  function applyRemote(data, updated_at) {
+    if (!data || typeof data !== "object") return;
+    applyingRemote = true;
+    try {
+      state = Object.assign(defaultState(), data);
+      state.stats = Object.assign(defaultState().stats, data.stats || {});
+      state.settings = Object.assign(defaultState().settings, data.settings || {});
+      if (!Array.isArray(state.words)) state.words = [];
+      if (!Array.isArray(state.mistakes)) state.mistakes = [];
+      save();
+      setSyncAt(updated_at || 0);
+      renderAll();
+      if (currentView === "mistakes") renderMistakes();
+    } finally {
+      applyingRemote = false;
+    }
+  }
+
+  // 推送（带防抖，由 save() 触发）
+  async function pushSync() {
+    const pass = getSyncPass();
+    if (!pass || !getSyncOn() || syncing) return;
+    syncing = true;
+    const at = Date.now();
+    try {
+      const res = await apiPut(pass, state, at);
+      if (res.status === 200) {
+        setSyncAt(res.updated_at || at);
+        dirty = false;
+        updateSyncUI("ok");
+      } else if (res.status === 409) {
+        if (res.data) applyRemote(res.data, res.updated_at); // 云端更新，以云端为准
+        toast("已用云端最新数据更新本机 ☁️", "ok");
+      } else {
+        updateSyncUI("err");
+      }
+    } catch (e) {
+      updateSyncUI("err");
+    } finally {
+      syncing = false;
+    }
+  }
+
+  function schedulePush() {
+    if (!getSyncOn() || !getSyncPass()) return;
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => pushSync(), 1500);
+  }
+
+  // 拉取并按 updated_at 调和（立即同步按钮也走这里）
+  async function pullSync() {
+    const pass = getSyncPass();
+    if (!pass || !getSyncOn() || syncing) return;
+    syncing = true;
+    try {
+      const res = await apiGet(pass);
+      if (res.status === 404) {
+        if (hasLocalData()) {
+          const at = Date.now();
+          const r = await apiPut(pass, state, at);
+          if (r.status === 200) { setSyncAt(at); dirty = false; updateSyncUI("ok"); }
+          else if (r.status === 409 && r.data) applyRemote(r.data, r.updated_at);
+        }
+        return;
+      }
+      if (res.status !== 200) { updateSyncUI("err"); return; }
+
+      const remoteAt = res.updated_at || 0;
+      const localAt = getSyncAt();
+
+      if (localAt === 0 && hasLocalData()) {
+        // 首次开启同步且本机已有数据：让用户决定以谁为准
+        const useLocal = confirm(
+          "检测到云端已有同步数据。\n点「确定」= 用【本机】数据覆盖云端（推荐先在本机操作）；\n点「取消」= 改用【云端】数据覆盖本机。"
+        );
+        if (useLocal) {
+          const at = Date.now();
+          const r = await apiPut(pass, state, at);
+          if (r.status === 200) { setSyncAt(at); updateSyncUI("ok"); }
+          else if (r.status === 409 && r.data) applyRemote(r.data, r.updated_at);
+        } else {
+          applyRemote(res.data, remoteAt);
+          toast("已用云端数据覆盖本机 ☁️", "ok");
+        }
+      } else if (remoteAt > localAt) {
+        applyRemote(res.data, remoteAt);
+        toast("已从云端同步最新数据 ☁️", "ok");
+      } else if (remoteAt < localAt || dirty) {
+        // 本机更新或本机有未上传改动 → 上传本机
+        const at = Date.now();
+        const r = await apiPut(pass, state, at);
+        if (r.status === 200) { setSyncAt(at); dirty = false; updateSyncUI("ok"); }
+        else if (r.status === 409 && r.data) applyRemote(r.data, r.updated_at);
+      } else {
+        updateSyncUI("ok");
+      }
+    } catch (e) {
+      updateSyncUI("err");
+    } finally {
+      syncing = false;
+    }
+  }
+
+  function bindSync() {
+    const passEl = document.getElementById("sync-pass");
+    const onEl = document.getElementById("sync-on");
+    const nowBtn = document.getElementById("btn-sync-now");
+    if (!passEl || !onEl) return;
+
+    passEl.value = getSyncPass();
+    onEl.checked = getSyncOn();
+    updateSyncUI();
+
+    onEl.addEventListener("change", () => {
+      const on = onEl.checked;
+      try { localStorage.setItem(SYNC_ON, on ? "1" : "0"); } catch { /* ignore */ }
+      if (on) {
+        const p = passEl.value.trim();
+        if (!p) {
+          toast("请先填写同步口令", "err");
+          onEl.checked = false;
+          try { localStorage.setItem(SYNC_ON, "0"); } catch { /* ignore */ }
+          return;
+        }
+        try { localStorage.setItem(SYNC_KEY, p); } catch { /* ignore */ }
+        toast("已开启自动同步，正在拉取云端…", "ok");
+        pullSync();
+      } else {
+        updateSyncUI();
+      }
+    });
+
+    passEl.addEventListener("change", () => {
+      const p = passEl.value.trim();
+      try {
+        if (p) localStorage.setItem(SYNC_KEY, p);
+        else localStorage.removeItem(SYNC_KEY);
+      } catch { /* ignore */ }
+    });
+
+    if (nowBtn) {
+      nowBtn.addEventListener("click", () => {
+        const p = passEl.value.trim();
+        if (!p) {
+          toast("请先填写同步口令", "err");
+          return;
+        }
+        try {
+          localStorage.setItem(SYNC_KEY, p);
+          localStorage.setItem(SYNC_ON, "1");
+        } catch { /* ignore */ }
+        onEl.checked = true;
+        toast("正在同步…", "ok");
+        pullSync();
+      });
+    }
+  }
+
   function load() {
     if (!hasLS) {
       toast("当前浏览器不支持本地存储，数据将无法保存", "err");
@@ -57,6 +289,8 @@
     } catch (e) {
       toast("保存失败：浏览器存储空间可能已满", "err");
     }
+    // 改动后触发（防抖）推送；应用云端数据时跳过，避免回写循环
+    if (!applyingRemote) { dirty = true; schedulePush(); }
   }
 
   /* ---------------- 小工具 ---------------- */
@@ -651,6 +885,7 @@
 
   /* ---------------- 视图切换 ---------------- */
   function switchView(view) {
+    currentView = view;
     $$(".view").forEach((v) => v.classList.add("hidden"));
     const target = $("#view-" + view);
     if (target) target.classList.remove("hidden");
@@ -1421,7 +1656,10 @@
     bindExam();
     bindGame();
     bindMistakes();
+    bindSync();
     renderAll();
+    // 首屏渲染后，若已开启同步则拉取云端
+    if (getSyncOn() && getSyncPass()) pullSync();
   }
 
   if (document.readyState === "loading") {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="小学生英语单词练习乐园：单词本 + 学习/拼写/复习/考试/配对游戏，真人发音、间隔复习、游戏化激励，数据仅存本地浏览器，免费部署在 Cloudflare Pages。" />
+  <meta name="description" content="小学生英语单词练习乐园：单词本 + 学习/拼写/复习/考试/配对游戏，真人发音、间隔复习、游戏化激励；数据存浏览器，可开启 Cloudflare 云端同步在多设备共享，免费部署在 Cloudflare Pages。" />
   <title>🐻 单词小乐园 · 英语单词练习</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐻</text></svg>" />
@@ -68,6 +68,24 @@
       <div class="card stats-card">
         <h2>🏆 我的成就</h2>
         <div class="stats-grid" id="stats-grid"></div>
+      </div>
+
+      <!-- 云端同步 -->
+      <div class="card sync-card">
+        <h2>☁️ 云端同步</h2>
+        <p class="sync-desc">设置同一个「同步口令」，就能在手机 / 电脑 / 平板上共享同一份单词本与错题本。数据存 Cloudflare，免费、无需注册。</p>
+        <div class="setting-row">
+          <label for="sync-pass">同步口令</label>
+          <input type="password" id="sync-pass" placeholder="自设一个口令，多台设备保持一致" autocomplete="new-password" />
+        </div>
+        <div class="setting-row sync-toggle-row">
+          <label for="sync-on">开启自动同步</label>
+          <input type="checkbox" id="sync-on" />
+        </div>
+        <div class="sync-actions">
+          <button class="btn btn-primary" id="btn-sync-now">🔄 立即同步</button>
+          <span class="sync-status" id="sync-status">未同步</span>
+        </div>
       </div>
 
       <div class="card">
@@ -256,7 +274,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>🌟 单词小乐园 · 数据保存在你的浏览器里，不会上传到任何服务器</p>
+    <p>🌟 单词小乐园 · 数据保存在你的浏览器，开启同步后通过 Cloudflare 在多设备共享</p>
   </footer>
 
   <div class="toast" id="toast" hidden></div>

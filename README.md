@@ -3,7 +3,7 @@
 小学生英语单词练习乐园：单词本 + 学习 / 拼写 / 复习 / 考试 / 配对游戏，真人发音、间隔复习、游戏化激励。
 
 - **纯静态、纯前端**，无需后端与数据库。
-- **数据仅保存在浏览器 localStorage**，不上传任何服务器。
+- **数据默认只存在浏览器 localStorage**；可选开启 **Cloudflare KV 云端同步**，在多设备共享同一份单词本与错题本。
 - 一键部署到 **Cloudflare Pages**（免费额度自用完全够）。
 
 ## 功能一览
@@ -51,18 +51,44 @@ npx serve .
 npx wrangler pages deploy . --project-name=word-land
 ```
 
+## 多端同步（Cloudflare KV）
+
+在「单词本」标签页的 **☁️ 云端同步** 面板里，设置一个**同步口令**并开启自动同步，即可在手机/电脑/平板上共享同一份数据。无需注册账号，多台设备用同一个口令即可。
+
+### 原理
+- 同步后端是仓库里的 `functions/api/sync.js`（Cloudflare Pages Function）。
+- 数据存 Cloudflare **KV**：key 由「同步口令的 SHA-256」派生，云端不存明文口令。
+- 冲突策略：**后写覆盖（last-write-wins）**，按 `updated_at` 时间戳调和。个人自用、通常不同时改，足够稳妥。
+- 同步额度：KV 免费 10 万读/天、1000 写/天、1GB，自用完全够。
+
+### 一次性后台配置（约 2 分钟）
+1. Cloudflare 控制台 → **Storage & Databases** → **KV** → 新建命名空间，命名为 `wordland-sync`。
+2. 你的 Pages 项目 → **Settings** → **Functions** → **KV namespace bindings** → 添加绑定：
+   - 变量名（Variable name）：`WORDLAND_SYNC`
+   - 选择刚建的命名空间。
+3. 配置好后 `git push` 一次，Pages Function 即生效（函数文件随仓库部署，KV 绑定需在后台手动加）。
+
+> 本地用 `wrangler pages dev` 测试时，需在 `wrangler.toml` 里给 `WORDLAND_SYNC` 绑定一个本地 KV 命名空间 ID。
+
+### 使用
+- 设备 A：填入口令 → 开启同步 → 数据自动上传云端。
+- 设备 B：填**同一个**口令 → 开启同步 → 自动拉取 A 的数据。
+- 之后任意设备的改动都会在保存后约 1.5 秒自动同步；也可点「🔄 立即同步」手动触发。
+
 ## 目录结构
 
 ```
 word-land/
-├── index.html   # 页面结构
-├── style.css    # 样式（童趣、响应式）
-├── app.js       # 全部交互逻辑（localStorage）
-├── _headers     # Cloudflare Pages 安全/缓存头
+├── index.html            # 页面结构
+├── style.css             # 样式（童趣、响应式）
+├── app.js                # 全部交互逻辑（localStorage + 云端同步）
+├── functions/
+│   └── api/sync.js       # Cloudflare Pages Function：拉取/推送同步数据（KV 后端）
+├── _headers              # Cloudflare Pages 安全/缓存头
 ├── .gitignore
 └── README.md
 ```
 
 ## 隐私说明
 
-所有单词与学习进度只存在你自己的浏览器里（localStorage），不会上传到任何服务器。换设备/清缓存前可用「导出」备份 JSON。
+默认所有单词与学习进度只存在你自己的浏览器里（localStorage），不上传任何服务器。只有在「☁️ 云端同步」面板**主动开启同步并填写口令**后，数据才会经 Cloudflare KV 在多设备间同步；云端 key 由口令哈希派生，数据以明文存储于你的 KV 命名空间（站点强制 HTTPS，仅持有口令者可定位）。如需更强隐私，可自行在 `app.js` 加入客户端加密（以口令为密钥的 AES）。换设备/清缓存前可用「导出」备份 JSON。
