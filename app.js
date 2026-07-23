@@ -62,15 +62,18 @@
     return { "Content-Type": "application/json", Authorization: "Bearer " + pass };
   }
 
-  // 拉取：返回 { status, data, updated_at }
+  // 拉取：返回 { status, data, updated_at, error }
   async function apiGet(pass) {
     const r = await fetch("/api/sync", { headers: { Authorization: "Bearer " + pass } });
     if (r.status === 404) return { status: 404 };
-    if (!r.ok) return { status: r.status };
+    if (!r.ok) {
+      const text = await r.text().catch(() => "");
+      return { status: r.status, error: text || ("HTTP " + r.status) };
+    }
     const j = await r.json();
     return { status: 200, data: j.data, updated_at: j.updated_at };
   }
-  // 推送：返回 { status, updated_at, data }
+  // 推送：返回 { status, updated_at, data, error }
   async function apiPut(pass, data, updated_at) {
     const r = await fetch("/api/sync", {
       method: "POST",
@@ -81,19 +84,23 @@
       const j = await r.json().catch(() => ({}));
       return { status: 409, data: j.data, updated_at: j.updated_at };
     }
-    if (!r.ok) return { status: r.status };
+    if (!r.ok) {
+      const text = await r.text().catch(() => "");
+      return { status: r.status, error: text || ("HTTP " + r.status) };
+    }
     const j = await r.json().catch(() => ({}));
     return { status: 200, updated_at: j.updated_at || updated_at };
   }
 
-  function updateSyncUI(kind) {
+  function updateSyncUI(kind, msg) {
     const el = document.getElementById("sync-status");
     if (!el) return;
     if (kind === "ok") {
       el.textContent = "已同步 · " + new Date().toLocaleTimeString();
       el.className = "sync-status ok";
     } else if (kind === "err") {
-      el.textContent = "同步失败（检查网络或部署）";
+      const base = "同步失败";
+      el.textContent = msg ? base + "：" + msg : base + "（检查网络或部署）";
       el.className = "sync-status err";
     } else {
       const at = getSyncAt();
@@ -137,10 +144,10 @@
         if (res.data) applyRemote(res.data, res.updated_at); // 云端更新，以云端为准
         toast("已用云端最新数据更新本机 ☁️", "ok");
       } else {
-        updateSyncUI("err");
+        updateSyncUI("err", res.error || ("HTTP " + res.status));
       }
     } catch (e) {
-      updateSyncUI("err");
+      updateSyncUI("err", e.message || String(e));
     } finally {
       syncing = false;
     }
@@ -168,7 +175,7 @@
         }
         return;
       }
-      if (res.status !== 200) { updateSyncUI("err"); return; }
+      if (res.status !== 200) { updateSyncUI("err", res.error || ("HTTP " + res.status)); return; }
 
       const remoteAt = res.updated_at || 0;
       const localAt = getSyncAt();
@@ -200,7 +207,7 @@
         updateSyncUI("ok");
       }
     } catch (e) {
-      updateSyncUI("err");
+      updateSyncUI("err", e.message || String(e));
     } finally {
       syncing = false;
     }
