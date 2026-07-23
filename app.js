@@ -832,6 +832,50 @@
   }
 
   /* ---------------- 自动查（联网，失败降级） ---------------- */
+  // 音标 + 例句（dictionaryapi.dev，CORS 友好，浏览器直连）
+  async function fetchPhoneticEx(en) {
+    try {
+      const r = await fetch("https://api.dictionaryapi.dev/api/v2/entries/en/" + encodeURIComponent(en));
+      if (!r.ok) return { phonetic: "", ex: "" };
+      const data = await r.json();
+      const entry = Array.isArray(data) ? data[0] : null;
+      if (!entry) return { phonetic: "", ex: "" };
+      const phonetic =
+        entry.phonetic || (entry.phonetics || []).map((p) => p.text).find(Boolean) || "";
+      let ex = "";
+      (entry.meanings || []).some((m) =>
+        (m.definitions || []).some((d) => {
+          if (d.example) {
+            ex = d.example;
+            return true;
+          }
+          return false;
+        })
+      );
+      return { phonetic, ex };
+    } catch {
+      return { phonetic: "", ex: "" };
+    }
+  }
+
+  // 中文翻译兜底：MyMemory（浏览器直连，用本机 IP 不会被 Cloudflare 共享 IP 限流）
+  async function fetchZhMyMemory(en) {
+    try {
+      const r = await fetch(
+        "https://api.mymemory.translated.net/get?q=" +
+          encodeURIComponent(en) +
+          "&langpair=en|zh-CN"
+      );
+      if (!r.ok) return "";
+      const j = await r.json();
+      const zh = j && j.responseData && j.responseData.translatedText;
+      if (zh && !/MYMEMORY WARNING/i.test(zh)) return zh;
+      return "";
+    } catch {
+      return "";
+    }
+  }
+
   async function lookupWord() {
     const en = ($("#en-input").value || "").trim();
     if (!en) return toast("请先输入英语单词", "err");
@@ -839,21 +883,27 @@
     const old = btn.textContent;
     btn.disabled = true;
     btn.textContent = "查询中…";
-    try {
-      const r = await fetch("/api/lookup?q=" + encodeURIComponent(en));
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      const j = await r.json();
-      if (j.phonetic) $("#en-input").dataset.phonetic = j.phonetic;
-      if (j.ex && !$("#ex-input").value) $("#ex-input").value = j.ex;
-      if (j.zh) $("#zh-input").value = j.zh;
-      if (j.ok) toast("已自动填入，可再手动修改 ✨", "ok");
-      else toast("联网查询无结果，请手动填写", "err");
-    } catch (e) {
-      toast("联网查询失败，请手动填写中文意思", "err");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = old;
-    }
+    const key = en.toLowerCase();
+
+    // 中文：内置词库优先（离线、准确、永不失败）
+    let zh = window.BUILTIN_ZH && window.BUILTIN_ZH[key] ? window.BUILTIN_ZH[key] : "";
+
+    // 并行：音标例句（直连）+ 中文兜底（仅当词库未命中时）
+    const [pe, zhM] = await Promise.all([
+      fetchPhoneticEx(en),
+      zh ? Promise.resolve("") : fetchZhMyMemory(en),
+    ]);
+    if (!zh && zhM) zh = zhM;
+
+    btn.disabled = false;
+    btn.textContent = old;
+
+    if (pe.phonetic) $("#en-input").dataset.phonetic = pe.phonetic;
+    if (pe.ex && !$("#ex-input").value) $("#ex-input").value = pe.ex;
+    if (zh) $("#zh-input").value = zh;
+
+    if (zh || pe.phonetic || pe.ex) toast("已自动填入，可再手动修改 ✨", "ok");
+    else toast("联网查询失败，请手动填写中文意思", "err");
   }
 
   /* ---------------- 视图切换 ---------------- */
