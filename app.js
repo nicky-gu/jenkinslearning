@@ -839,55 +839,21 @@
     const old = btn.textContent;
     btn.disabled = true;
     btn.textContent = "查询中…";
-    let gotAny = false;
-    // 1) 音标 + 例句
     try {
-      const r = await fetch("https://api.dictionaryapi.dev/api/v2/entries/en/" + encodeURIComponent(en));
-      if (r.ok) {
-        const data = await r.json();
-        const entry = Array.isArray(data) ? data[0] : null;
-        if (entry) {
-          const phon = entry.phonetic || (entry.phonetics || []).map((p) => p.text).find(Boolean);
-          if (phon) $("#en-input").dataset.phonetic = phon;
-          let ex = "";
-          (entry.meanings || []).some((m) =>
-            (m.definitions || []).some((d) => {
-              if (d.example) {
-                ex = d.example;
-                return true;
-              }
-              return false;
-            })
-          );
-          if (ex && !$("#ex-input").value) $("#ex-input").value = ex;
-          gotAny = true;
-        }
-      }
+      const r = await fetch("/api/lookup?q=" + encodeURIComponent(en));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+      if (j.phonetic) $("#en-input").dataset.phonetic = j.phonetic;
+      if (j.ex && !$("#ex-input").value) $("#ex-input").value = j.ex;
+      if (j.zh) $("#zh-input").value = j.zh;
+      if (j.ok) toast("已自动填入，可再手动修改 ✨", "ok");
+      else toast("联网查询无结果，请手动填写", "err");
     } catch (e) {
-      /* 忽略，走降级 */
+      toast("联网查询失败，请手动填写中文意思", "err");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old;
     }
-    // 2) 中文翻译
-    try {
-      if (!$("#zh-input").value) {
-        const r2 = await fetch(
-          "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(en) + "&langpair=en|zh-CN"
-        );
-        if (r2.ok) {
-          const d2 = await r2.json();
-          const zh = d2 && d2.responseData && d2.responseData.translatedText;
-          if (zh) {
-            $("#zh-input").value = zh;
-            gotAny = true;
-          }
-        }
-      }
-    } catch (e) {
-      /* 忽略 */
-    }
-    btn.disabled = false;
-    btn.textContent = old;
-    if (gotAny) toast("已自动填入，可再手动修改 ✨", "ok");
-    else toast("联网查询失败，请手动填写中文意思", "err");
   }
 
   /* ---------------- 视图切换 ---------------- */
