@@ -22,6 +22,7 @@
 
   const defaultState = () => ({
     words: [],
+    mistakes: [],
     stats: { stars: 0, streak: 0, lastActive: "", achievements: [] },
     settings: { accent: "us" },
   });
@@ -41,6 +42,7 @@
         state.stats = Object.assign(defaultState().stats, parsed.stats || {});
         state.settings = Object.assign(defaultState().settings, parsed.settings || {});
         if (!Array.isArray(state.words)) state.words = [];
+        if (!Array.isArray(state.mistakes)) state.mistakes = [];
       }
     } catch (e) {
       toast("读取存档失败，已重置为空单词本", "err");
@@ -154,6 +156,41 @@
     w.last = now;
   }
 
+  /* ---------------- 错题本：记录与同步 ---------------- */
+  function recordMistake({ wordId, mode, prompt, answer, correct }) {
+    const w = wordId ? state.words.find((x) => x.id === wordId) : null;
+    state.mistakes.push({
+      id: uid(),
+      wordId: wordId || "",
+      en: w ? w.en : "",
+      zh: w ? w.zh : "",
+      mode,
+      prompt: prompt || "",
+      answer: answer || "",
+      correct: correct || "",
+      at: Date.now(),
+      resolved: false,
+    });
+    save();
+    renderStats();
+    const badge = $("#mistake-count");
+    if (badge) badge.textContent = state.mistakes.filter((m) => !m.resolved).length;
+  }
+
+  // 单词被练到「已掌握」时，自动将其错题标记为已攻克（保留历史）
+  function syncResolved() {
+    let changed = false;
+    state.mistakes.forEach((m) => {
+      if (m.resolved) return;
+      const w = m.wordId && state.words.find((x) => x.id === m.wordId);
+      if (w && isMastered(w)) {
+        m.resolved = true;
+        changed = true;
+      }
+    });
+    if (changed) save();
+  }
+
   /* ---------------- 打卡 / 星星 / 成就 ---------------- */
   function checkin() {
     const t = todayStr();
@@ -184,6 +221,8 @@
     { id: "streak3", icon: "🔥", name: "三日打卡", test: (s) => s.stats.streak >= 3 },
     { id: "streak7", icon: "🏆", name: "一周坚持", test: (s) => s.stats.streak >= 7 },
     { id: "master10", icon: "💎", name: "掌握十词", test: (s) => s.words.filter(isMastered).length >= 10 },
+    { id: "mistakeFirst", icon: "📕", name: "初见错题", test: (s) => s.mistakes.length >= 1 },
+    { id: "mistakeClear10", icon: "🧹", name: "错题清道夫", test: (s) => s.mistakes.filter((m) => m.resolved).length >= 10 },
   ];
 
   function checkAchievements() {
@@ -207,15 +246,18 @@
   }
 
   function renderStats() {
+    syncResolved();
     const grid = $("#stats-grid");
     grid.innerHTML = "";
     const total = state.words.length;
     const mastered = state.words.filter(isMastered).length;
     const wrong = state.words.filter((w) => w.wrong > 0).length;
+    const pending = state.mistakes.filter((m) => !m.resolved).length;
     const tiles = [
       { num: total, lbl: "总词数" },
       { num: mastered, lbl: "已掌握" },
       { num: wrong, lbl: "错词" },
+      { num: pending, lbl: "待攻克" },
       { num: state.stats.stars, lbl: "星星" },
     ];
     tiles.forEach((t) => {
@@ -231,6 +273,8 @@
       d.appendChild(l);
       grid.appendChild(d);
     });
+    const badge = $("#mistake-count");
+    if (badge) badge.textContent = pending;
     // 成就徽章
     const achWrap = document.createElement("div");
     achWrap.style.gridColumn = "1 / -1";
@@ -431,20 +475,23 @@
       toast(added ? `已加入 ${added} 个示例单词 🎁` : "示例单词都已在词库里", added ? "ok" : "");
     });
 
-    // 导出
+    // 导出（含错题本）
     $("#btn-export").addEventListener("click", () => {
       if (!state.words.length) return toast("单词本是空的，没什么可导出", "err");
-      const blob = new Blob([JSON.stringify(state.words, null, 2)], { type: "application/json" });
+      const blob = new Blob(
+        [JSON.stringify({ words: state.words, mistakes: state.mistakes }, null, 2)],
+        { type: "application/json" }
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `单词小乐园_${todayStr()}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast("已导出单词本 ⬇️", "ok");
+      toast("已导出单词本与错题本 ⬇️", "ok");
     });
 
-    // 导入
+    // 导入（兼容旧版纯数组与新版 {words,mistakes}）
     $("#btn-import").addEventListener("click", () => $("#file-input").click());
     $("#file-input").addEventListener("change", (e) => {
       const file = e.target.files[0];
@@ -452,12 +499,26 @@
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          const arr = JSON.parse(reader.result);
-          if (!Array.isArray(arr)) throw new Error("格式不对");
+          const data = JSON.parse(reader.result);
+          let wordsToAdd = data;
+          if (!Array.isArray(data)) {
+            if (data && Array.isArray(data.words)) wordsToAdd = data.words;
+            else throw new Error("格式不对");
+            if (Array.isArray(data.mistakes)) {
+              data.mistakes.forEach((m) => {
+                if (m && (m.en || m.zh)) {
+                  state.mistakes.push(
+                    Object.assign({ id: uid(), resolved: false, at: Date.now() }, m)
+                  );
+                }
+              });
+            }
+          }
           let added = 0;
-          arr.forEach((item) => {
+          wordsToAdd.forEach((item) => {
             if (item && item.en && item.zh && addWord(item, true)) added++;
           });
+          save();
           renderAll();
           toast(`导入完成，新增 ${added} 个单词 ⬆️`, "ok");
         } catch (err) {
@@ -554,6 +615,7 @@
     if (view === "review") resetReview();
     if (view === "exam") resetExam();
     if (view === "game") resetGame();
+    if (view === "mistakes") renderMistakes();
   }
 
   function bindTabs() {
@@ -770,6 +832,7 @@
         fb.textContent = "再想想～正确答案：" + w.en;
         fb.className = "spell-feedback no";
         w.wrong = (w.wrong || 0) + 1;
+        recordMistake({ wordId: w.id, mode: "spell", prompt: w.zh, answer: input.value.trim(), correct: w.en });
         save();
         speak(w.en);
       }
@@ -876,6 +939,7 @@
     if (!reviewShown) return toast("先点「显示答案」再自评哦", "");
     const w = reviewList[reviewIdx];
     scheduleReview(w, known);
+    if (!known) recordMistake({ wordId: w.id, mode: "review", prompt: w.zh, answer: "", correct: w.en });
     save();
     if (known) addStars(1);
     reviewIdx++;
@@ -965,6 +1029,7 @@
     } else {
       btn.classList.add("wrong");
       q.w.wrong = (q.w.wrong || 0) + 1;
+      recordMistake({ wordId: q.w.id, mode: "exam", prompt: q.ask, answer: opt, correct: q.correct });
       Array.from(wrap.children).forEach((b) => {
         if (b.textContent === q.correct) b.classList.add("correct");
       });
@@ -1009,6 +1074,17 @@
     const again = mkBtn("btn btn-primary", "🔄 再考一次", resetExam);
     again.style.marginTop = "16px";
     box.appendChild(again);
+
+    // 考后有错题 → 提供跳转错题本入口
+    const wrongCount = examLog.filter((l) => !l.ok).length;
+    const toMb = $("#exam-tomistakes");
+    toMb.hidden = wrongCount === 0;
+    toMb.innerHTML = "";
+    if (wrongCount > 0) {
+      const b = mkBtn("btn btn-primary", `📕 查看错题本（${wrongCount} 道）`, () => switchView("mistakes"));
+      b.style.marginTop = "10px";
+      toMb.appendChild(b);
+    }
 
     const stars = Math.max(1, Math.round(examScore / 2));
     addStars(stars);
@@ -1082,6 +1158,10 @@
       first.classList.add("shake");
       const f = gameSel;
       gameSel = null;
+      // 记录配对连错：英文词 A 被错配成中文 B
+      const enCell = a.type === "en" ? a : b;
+      const zhCell = a.type === "en" ? b : a;
+      recordMistake({ wordId: enCell.word.id, mode: "game", prompt: enCell.text, answer: zhCell.text, correct: enCell.word.zh });
       setTimeout(() => {
         first.classList.remove("selected", "shake");
         el.classList.remove("selected", "shake");
@@ -1100,6 +1180,150 @@
     const stars = gamePairs;
     addStars(stars);
     toast(`配对全部完成 +${stars}⭐`, "ok");
+  }
+
+  /* ---------------- 错题本：渲染与交互 ---------------- */
+  const MODE_LABEL = { spell: "拼写", exam: "考试", review: "复习", game: "配对" };
+  let showResolved = false;
+
+  function relTime(ts) {
+    const diff = Date.now() - ts;
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "刚刚";
+    if (m < 60) return m + " 分钟前";
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + " 小时前";
+    const d = Math.floor(h / 24);
+    return d + " 天前";
+  }
+
+  function renderMistakes() {
+    syncResolved();
+    const ul = $("#mistake-list");
+    const modeFilter = $("#mistake-mode-filter").value;
+    const q = ($("#mistake-search").value || "").trim().toLowerCase();
+    ul.innerHTML = "";
+
+    let items = state.mistakes.slice().sort((a, b) => b.at - a.at); // 最新在前
+    if (!showResolved) items = items.filter((m) => !m.resolved);
+    if (modeFilter) items = items.filter((m) => m.mode === modeFilter);
+    if (q)
+      items = items.filter(
+        (m) =>
+          (m.en || "").toLowerCase().includes(q) ||
+          (m.zh || "").toLowerCase().includes(q) ||
+          (m.prompt || "").toLowerCase().includes(q)
+      );
+
+    const pending = state.mistakes.filter((m) => !m.resolved).length;
+    $("#mistake-count").textContent = pending;
+    $("#mistake-empty-hint").style.display = items.length === 0 ? "block" : "none";
+
+    items.forEach((m) => {
+      const li = document.createElement("li");
+      li.className = "mistake-item" + (m.resolved ? " resolved" : "");
+
+      const top = document.createElement("div");
+      top.className = "mi-top";
+      const prompt = document.createElement("span");
+      prompt.className = "mi-prompt";
+      prompt.textContent = m.prompt || m.en;
+      const badge = document.createElement("span");
+      badge.className = "mi-badge " + m.mode;
+      badge.textContent = MODE_LABEL[m.mode] || m.mode;
+      top.append(prompt, badge);
+
+      const answers = document.createElement("div");
+      answers.className = "mi-answers";
+      const ans = document.createElement("div");
+      ans.className = "mi-answer";
+      const aLabel = document.createElement("span");
+      aLabel.textContent = "你的答案：";
+      const aVal = document.createElement("b");
+      aVal.textContent = m.answer || (m.mode === "review" ? "（没记住）" : "—");
+      ans.append(aLabel, aVal);
+      const cor = document.createElement("div");
+      cor.className = "mi-correct";
+      const cLabel = document.createElement("span");
+      cLabel.textContent = "正确答案：";
+      const cVal = document.createElement("b");
+      cVal.textContent = m.correct || m.en;
+      cor.append(cLabel, cVal);
+      answers.append(ans, cor);
+
+      const meta = document.createElement("div");
+      meta.className = "mi-meta";
+      const time = document.createElement("span");
+      time.textContent = "🕒 " + relTime(m.at);
+      meta.appendChild(time);
+
+      const actions = document.createElement("div");
+      actions.className = "mi-actions";
+      const w = m.wordId && state.words.find((x) => x.id === m.wordId);
+      if (w) {
+        actions.appendChild(mkBtn("btn btn-round", "🔁 去巩固", () => practiceWord(m.wordId)));
+      } else {
+        const note = document.createElement("span");
+        note.className = "mi-removed-note";
+        note.textContent = "（原词已删除）";
+        actions.appendChild(note);
+      }
+      if (!m.resolved) {
+        actions.appendChild(
+          mkBtn("btn btn-round", "✅ 标记攻克", () => {
+            m.resolved = true;
+            save();
+            renderMistakes();
+            renderStats();
+            toast("已标记为攻克 🧹", "ok");
+          })
+        );
+      }
+      actions.appendChild(
+        mkBtn("btn btn-round", "🗑️ 移除", () => {
+          state.mistakes = state.mistakes.filter((x) => x.id !== m.id);
+          save();
+          renderMistakes();
+          renderStats();
+          toast("已从错题本移除");
+        })
+      );
+
+      li.append(top, answers, meta, actions);
+      ul.appendChild(li);
+    });
+  }
+
+  // 去巩固：复用复习模式「仅错词」筛选，错题中的词必定在列表中
+  function practiceWord(id) {
+    $("#review-range").value = "wrong";
+    switchView("review");
+    $("#review-start").click();
+    toast("已为你打开复习（仅错词）🔄", "");
+  }
+
+  function bindMistakes() {
+    $("#mistake-mode-filter").addEventListener("change", renderMistakes);
+    $("#mistake-search").addEventListener("input", renderMistakes);
+    $("#btn-mistake-practice").addEventListener("click", () => {
+      if (!pool("wrong").length) return toast("暂时没有需要巩固的错题哦", "");
+      practiceWord();
+    });
+    $("#mistake-show-resolved").addEventListener("click", () => {
+      showResolved = !showResolved;
+      $("#mistake-show-resolved").textContent = showResolved ? "👀 看未攻克" : "👀 看已攻克";
+      renderMistakes();
+    });
+    $("#btn-mistake-clear").addEventListener("click", () => {
+      if (!state.mistakes.length) return toast("错题本已经是空的啦", "");
+      if (confirm("确定要清空整个错题本吗？此操作不可恢复！")) {
+        state.mistakes = [];
+        save();
+        renderMistakes();
+        renderStats();
+        toast("已清空错题本");
+      }
+    });
   }
 
   /* ---------------- 通用按钮生成 ---------------- */
@@ -1142,6 +1366,7 @@
     bindReview();
     bindExam();
     bindGame();
+    bindMistakes();
     renderAll();
   }
 

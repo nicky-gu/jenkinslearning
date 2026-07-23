@@ -28,6 +28,7 @@
       <button class="tab" data-view="spell">✍️ 拼写</button>
       <button class="tab" data-view="review">🔄 复习</button>
       <button class="tab" data-view="exam">📝 考试</button>
+      <button class="tab" data-view="mistakes">📕 错题本</button>
       <button class="tab" data-view="game">🎮 配对</button>
     </nav>
   </header>
@@ -198,6 +199,37 @@
       </div>
       <div class="exam-area" id="exam-area" hidden></div>
       <div class="exam-result card" id="exam-result" hidden></div>
+      <div class="exam-tomistakes" id="exam-tomistakes" hidden></div>
+    </section>
+
+    <!-- ============ 错题本 ============ -->
+    <section class="view hidden" id="view-mistakes">
+      <div class="mode-banner mistakes-bg">
+        <h2>📕 错题本</h2>
+        <p>这里收集了你拼错、选错、没记住、配错的单词，点「去巩固」一键回炉！</p>
+      </div>
+      <div class="card">
+        <div class="list-header">
+          <h2>📕 我的错题 <span id="mistake-count" class="badge">0</span></h2>
+          <div class="list-actions">
+            <select id="mistake-mode-filter">
+              <option value="">全部模式</option>
+              <option value="spell">拼写</option>
+              <option value="exam">考试</option>
+              <option value="review">复习</option>
+              <option value="game">配对</option>
+            </select>
+            <button class="btn btn-primary" id="btn-mistake-practice">🚀 全部巩固</button>
+            <button class="btn btn-ghost" id="mistake-show-resolved">👀 看已攻克</button>
+            <button class="btn btn-ghost danger" id="btn-mistake-clear">🗑️ 清空</button>
+          </div>
+        </div>
+        <div class="filter-row">
+          <input type="text" id="mistake-search" placeholder="🔍 搜索单词…" />
+        </div>
+        <ul class="mistake-list" id="mistake-list"></ul>
+        <p class="empty-hint" id="mistake-empty-hint">还没有错题，太棒了！🎉</p>
+      </div>
     </section>
 
     <!-- ============ 配对游戏 ============ -->

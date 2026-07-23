@@ -366,6 +366,40 @@ input[type="text"]:focus, select:focus {
 .review-bg { background: linear-gradient(120deg, #9775fa, #7048e8); }
 .exam-bg { background: linear-gradient(120deg, #20c997, #0ca678); }
 .game-bg { background: linear-gradient(120deg, #ff6b9d, #f06595); }
+.mistakes-bg { background: linear-gradient(120deg, #e8590c, #d9480f); }
+
+/* ============ 错题本 ============ */
+.mistake-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.mistake-item {
+  background: var(--c-surface-soft);
+  border: 1px solid #ffe3cf;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mistake-item.resolved { opacity: .62; background: #f3fbf4; border-color: #d3f9d8; }
+.mi-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mi-prompt { font-size: 1.15rem; font-weight: 700; color: var(--c-text); }
+.mi-answers { display: flex; flex-direction: column; gap: 4px; font-size: .95rem; }
+.mi-answer { color: var(--c-red-dark); }
+.mi-answer b { color: var(--c-red-dark); }
+.mi-correct { color: var(--c-green-dark); }
+.mi-correct b { color: var(--c-green-dark); }
+.mi-meta { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--c-text-soft); }
+.mi-badge {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: .75rem; font-weight: 700; color: #fff;
+}
+.mi-badge.spell { background: #f76707; }
+.mi-badge.exam { background: #0ca678; }
+.mi-badge.review { background: #7048e8; }
+.mi-badge.game { background: #f06595; }
+.mi-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.mi-actions .btn { font-size: .85rem; padding: 6px 12px; }
+.mi-removed-note { font-size: .8rem; color: var(--c-text-soft); font-style: italic; }
+.exam-tomistakes { text-align: center; margin-top: 14px; }
 
 /* ============ 设置行 ============ */
 .setting-row {
