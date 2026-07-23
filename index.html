@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="小学生英语单词练习乐园：单词本 + 学习/拼写/复习/考试/配对游戏，真人发音、间隔复习、游戏化激励，数据仅存本地浏览器，免费部署在 Cloudflare Pages。" />
+  <title>🐻 单词小乐园 · 英语单词练习</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐻</text></svg>" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="mascot" id="mascot">🐻</span>
+      <div class="brand-text">
+        <h1>单词小乐园</h1>
+        <p class="subtitle">小学生英语单词练习 · 边玩边学</p>
+      </div>
+      <div class="hud" id="hud">
+        <span class="hud-item" title="星星积分">⭐ <b id="hud-stars">0</b></span>
+        <span class="hud-item" title="连续打卡天数">🔥 <b id="hud-streak">0</b></span>
+        <button class="accent-toggle" id="accent-toggle" title="切换发音口音">🇺🇸 美音</button>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab" data-view="book" aria-current="true">📚 单词本</button>
+      <button class="tab" data-view="learn">🎓 学习</button>
+      <button class="tab" data-view="spell">✍️ 拼写</button>
+      <button class="tab" data-view="review">🔄 复习</button>
+      <button class="tab" data-view="exam">📝 考试</button>
+      <button class="tab" data-view="game">🎮 配对</button>
+    </nav>
+  </header>
+
+  <main class="container">
+
+    <!-- ============ 单词本 ============ -->
+    <section class="view" id="view-book">
+      <div class="card">
+        <h2>➕ 添加新单词</h2>
+        <form id="word-form" class="word-form" autocomplete="off">
+          <div class="field">
+            <label for="en-input">英语单词</label>
+            <div class="input-with-btn">
+              <input type="text" id="en-input" placeholder="例如：apple" required />
+              <button type="button" class="btn btn-ghost" id="btn-lookup" title="联网自动查中文意思、音标和例句">✨ 自动查</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="zh-input">中文意思</label>
+            <input type="text" id="zh-input" placeholder="例如：苹果" required />
+          </div>
+          <div class="field">
+            <label for="cat-input">主题分类</label>
+            <input type="text" id="cat-input" list="cat-list" placeholder="动物 / 食物 / 颜色…" />
+            <datalist id="cat-list"></datalist>
+          </div>
+          <div class="field field-wide">
+            <label for="ex-input">例句（选填）</label>
+            <input type="text" id="ex-input" placeholder="例如：I eat an apple." />
+          </div>
+          <button type="submit" class="btn btn-primary">💾 保存到单词本</button>
+        </form>
+      </div>
+
+      <!-- 成就 / 统计 -->
+      <div class="card stats-card">
+        <h2>🏆 我的成就</h2>
+        <div class="stats-grid" id="stats-grid"></div>
+      </div>
+
+      <div class="card">
+        <div class="list-header">
+          <h2>📖 我的单词本 <span id="word-count" class="badge">0</span></h2>
+          <div class="list-actions">
+            <button class="btn btn-ghost" id="btn-sample">🎁 示例词库</button>
+            <button class="btn btn-ghost" id="btn-export">⬇️ 导出</button>
+            <button class="btn btn-ghost" id="btn-import">⬆️ 导入</button>
+            <button class="btn btn-ghost danger" id="btn-clear">🗑️ 清空</button>
+            <input type="file" id="file-input" accept="application/json" hidden />
+          </div>
+        </div>
+        <div class="filter-row">
+          <input type="text" id="search-input" placeholder="🔍 搜索单词…" />
+          <select id="cat-filter"><option value="">全部分类</option></select>
+        </div>
+        <ul class="word-list" id="word-list"></ul>
+        <p class="empty-hint" id="empty-hint">还没有单词哦，快添加第一个吧！🐻</p>
+      </div>
+    </section>
+
+    <!-- ============ 学习模式 ============ -->
+    <section class="view hidden" id="view-learn">
+      <div class="mode-banner learn-bg">
+        <h2>🎓 学习模式</h2>
+        <p>点击卡片翻面，点小喇叭听真人发音，点 🐢 慢速跟读～</p>
+      </div>
+      <div class="flashcard-wrap" id="learn-area">
+        <div class="empty-hint">请先在「单词本」添加单词，再来学习吧！</div>
+      </div>
+      <div class="learn-controls" id="learn-controls" hidden>
+        <button class="btn btn-round" id="learn-prev">⬅️ 上一个</button>
+        <button class="btn btn-round" id="learn-flip">🔄 翻一翻</button>
+        <button class="btn btn-round" id="learn-speak">🔊 真人发音</button>
+        <button class="btn btn-round" id="learn-slow">🐢 慢速</button>
+        <button class="btn btn-round" id="learn-next">下一个 ➡️</button>
+      </div>
+      <div class="progress-line"><div class="progress-bar" id="learn-progress"></div></div>
+    </section>
+
+    <!-- ============ 拼写模式 ============ -->
+    <section class="view hidden" id="view-spell">
+      <div class="mode-banner spell-bg">
+        <h2>✍️ 拼写模式</h2>
+        <p>看中文（或听发音）把英文拼出来，记不住可以看提示哦！</p>
+      </div>
+      <div class="spell-setup card" id="spell-setup">
+        <div class="setting-row">
+          <label for="spell-type">拼写方式</label>
+          <select id="spell-type">
+            <option value="zh2en" selected>看中文拼英文</option>
+            <option value="listen">🔊 听音拼写</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label for="spell-range">练习范围</label>
+          <select id="spell-range">
+            <option value="all" selected>全部单词</option>
+            <option value="wrong">仅错词</option>
+            <option value="weak">仅未掌握</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="spell-start">🚀 开始拼写</button>
+      </div>
+      <div class="spell-area card" id="spell-area" hidden></div>
+    </section>
+
+    <!-- ============ 复习模式 ============ -->
+    <section class="view hidden" id="view-review">
+      <div class="mode-banner review-bg">
+        <h2>🔄 复习模式</h2>
+        <p>按记忆曲线安排：先练最生疏的单词。看看中文，回想英文，再自评。</p>
+      </div>
+      <div class="review-setup card" id="review-setup">
+        <div class="setting-row">
+          <label for="review-range">复习范围</label>
+          <select id="review-range">
+            <option value="due" selected>优先生疏词</option>
+            <option value="all">全部单词</option>
+            <option value="wrong">仅错词</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="review-start">🚀 开始复习</button>
+      </div>
+      <div class="review-wrap" id="review-area" hidden></div>
+      <div class="review-controls" id="review-controls" hidden>
+        <button class="btn btn-round" id="review-show">👀 显示答案</button>
+        <button class="btn btn-round good" id="review-known" disabled>✅ 记住了</button>
+        <button class="btn btn-round bad" id="review-unknown" disabled>❌ 没记住</button>
+        <button class="btn btn-round" id="review-speak">🔊 听发音</button>
+      </div>
+      <div class="progress-line"><div class="progress-bar" id="review-progress"></div></div>
+    </section>
+
+    <!-- ============ 考试模式 ============ -->
+    <section class="view hidden" id="view-exam">
+      <div class="mode-banner exam-bg">
+        <h2>📝 考试模式</h2>
+        <p>系统自动出题，挑战一下自己吧！</p>
+      </div>
+      <div class="exam-setup card" id="exam-setup">
+        <h2>⚙️ 考试设置</h2>
+        <div class="setting-row">
+          <label for="exam-num">题目数量</label>
+          <select id="exam-num">
+            <option value="5">5 题</option>
+            <option value="10" selected>10 题</option>
+            <option value="15">15 题</option>
+            <option value="20">20 题</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label for="exam-type">出题方式</label>
+          <select id="exam-type">
+            <option value="zh2en" selected>看中文选英文</option>
+            <option value="en2zh">看英文选中文</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label for="exam-range">出题范围</label>
+          <select id="exam-range">
+            <option value="all" selected>全部单词</option>
+            <option value="wrong">仅错词</option>
+            <option value="weak">仅未掌握</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="exam-start">🚀 开始考试</button>
+      </div>
+      <div class="exam-area" id="exam-area" hidden></div>
+      <div class="exam-result card" id="exam-result" hidden></div>
+    </section>
+
+    <!-- ============ 配对游戏 ============ -->
+    <section class="view hidden" id="view-game">
+      <div class="mode-banner game-bg">
+        <h2>🎮 配对游戏</h2>
+        <p>点一个英文、再点对应的中文，配对成功就消失啦！全部配完有惊喜～</p>
+      </div>
+      <div class="game-setup card" id="game-setup">
+        <div class="setting-row">
+          <label for="game-num">卡片数量</label>
+          <select id="game-num">
+            <option value="6">6 张（3 对）</option>
+            <option value="8" selected>8 张（4 对）</option>
+            <option value="12">12 张（6 对）</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="game-start">🎲 开始游戏</button>
+      </div>
+      <div class="game-board" id="game-board" hidden></div>
+      <div class="game-result card" id="game-result" hidden></div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <p>🌟 单词小乐园 · 数据保存在你的浏览器里，不会上传到任何服务器</p>
+  </footer>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
